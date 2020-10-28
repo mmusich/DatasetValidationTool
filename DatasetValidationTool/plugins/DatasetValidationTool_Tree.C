@@ -5,10 +5,10 @@
 // 
 /**\class DatasetValidationTool_Tree DatasetValidationTool_Tree.cc DatasetValidation/DatasetValidationTool/plugins/DatasetValidationTool_Tree.cc
 
- Description: [one line class summary]
+ Description: Tool to validate datasets used for CMS Tracker Alignment by producing standard distributions
 
  Implementation:
-     [Notes on implementation]
+     Creates tuple with track variables required to validate the datasets 
 */
 //
 // Original Author:  Saumya Saumya
@@ -134,8 +134,9 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       TTree* treeEvent;
      
       int nTracks,nEvents,nTracksInEvent,nEventsInRun,nTracksInRun,nTracksInLuminosity,nEventsInLuminosity;
-      int nHits_Total,nHits_PIXEL,nHits_FPIX,nHits_FPIXplus,nHits_FPIXminus,nHits_BPIX,nHits_TIB,nHits_TID,nHits_TIDplus,nHits_TIDminus,nHits_TOB,nHits_TEC,nHits_TECplus,nHits_TECminus,nHits_ENDCAP,nHits_ENDCAPplus,nHits_ENDCAPminus;
-      
+      int nHits_PIXEL,nHits_FPIXplus,nHits_FPIXminus,nHits_TIDplus,nHits_TIDminus,nHits_TECplus,nHits_TECminus,nHits_ENDCAP,nHits_ENDCAPplus,nHits_ENDCAPminus;
+     
+      //-----Kinematic Variables-----// 
       std::vector<double> charge;
       std::vector<double> p;
       std::vector<double> pt;
@@ -154,8 +155,8 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       std::vector<double> d0BS;
       std::vector<double> dzBS;
       std::vector<double> dxyBS;
-
-      std::vector<int> nh_Total;
+      //-----Hits-----//
+      std::vector<int> nh_Valid;
       std::vector<int> nh_PIXEL;
       std::vector<int> nh_BPIX;
       std::vector<int> nh_FPIX;
@@ -172,15 +173,7 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       std::vector<int> nh_ENDCAP;
       std::vector<int> nh_ENDCAPplus;
       std::vector<int> nh_ENDCAPminus;
-
-      std::vector<int> nValid;
-      std::vector<int> nBPIX; 
-      std::vector<int> nFPIX;
-      std::vector<int> nTIB;
-      std::vector<int> nTOB;
-      std::vector<int> nTID;
-      std::vector<int> nTEC;
-      std::vector<double> Temp;
+      //-----Residuals-----//
 /*      std::vector<double> Res_BPIX_xPrime; 
       std::vector<double> Res_FPIX_xPrime;
       std::vector<double> Res_FPIXplus_xPrime;
@@ -190,14 +183,14 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       std::vector<double> Res_TOB_xPrime;
       std::vector<double> Res_TEC_xPrime;
 */ 
-
+     //-----Multiplicity-----//
      std::vector<int> Tracks_In_Event;
      std::vector<int> Events_In_Run;
      std::vector<int> Tracks_In_Run;
      std::vector<int> Events_In_Luminosity;
      std::vector<int> Tracks_In_Luminosity;
-
-
+     
+     std::vector<double> Temp;
 };
 
 //
@@ -228,7 +221,6 @@ DatasetValidationTool_Tree::~DatasetValidationTool_Tree()
 {
 }
 
-
 //
 // member functions
 //
@@ -237,8 +229,6 @@ DatasetValidationTool_Tree::~DatasetValidationTool_Tree()
 void
 DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 { 
-   nTracksInEvent=0;
-
    charge.clear();
    p.clear();
    pt.clear();
@@ -258,7 +248,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    d0BS.clear();
    dzBS.clear();
 
-   nh_Total.clear();
+   nh_Valid.clear();
    nh_PIXEL.clear();
    nh_BPIX.clear();
    nh_FPIX.clear();
@@ -276,14 +266,6 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    nh_ENDCAPplus.clear();
    nh_ENDCAPminus.clear();
 
-   nValid.clear();
-   nBPIX.clear();
-   nFPIX.clear();
-   nTIB.clear();
-   nTOB.clear();
-   nTID.clear();
-   nTEC.clear();
-
 /*   Res_BPIX_xPrime.clear();
    Res_FPIX_xPrime.clear();
    Res_FPIXplus_xPrime.clear();
@@ -294,41 +276,30 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    Res_TEC_xPrime.clear();
 */
 
-   Temp.clear();
-
    using namespace edm;
 
    edm::Handle<reco::TrackCollection> tracksHandle_;
    iEvent.getByToken(tracksToken_,tracksHandle_);
 
-    // magnetic field setup
-//   edm::ESHandle<MagneticField> magneticFieldHandle;
-//   iSetup.get<IdealMagneticField>().get(magneticFieldHandle);
-//   const MagneticField* magField = magneticFieldHandle.product()->inTesla(GlobalPoint(0, 0, 0)).mag();
-//   const MagneticField& magneticField = eventSetup.getData(magneticFieldToken_) 
-
    // Geometry setup
-//   edm::ESHandle<TrackerGeometry> geometry = setup.getHandle(geomToken_);
-//   const TrackerGeometry *theGeometry = &(*geometry);
-    edm::ESHandle<TrackerGeometry> geometry;
-    iSetup.get<TrackerDigiGeometryRecord>().get(geometry);
-    const TrackerGeometry *theGeometry = &(*geometry);
+   edm::ESHandle<TrackerGeometry> geometry;
+   iSetup.get<TrackerDigiGeometryRecord>().get(geometry);
+   const TrackerGeometry *theGeometry = &(*geometry);
 
-    //Retrieve tracker topology from geometry
-    edm::ESHandle<TrackerTopology> tTopoHandle;
-    iSetup.get<TrackerTopologyRcd>().get(tTopoHandle);
-    const TrackerTopology *const tTopo = tTopoHandle.product();
+   //Retrieve tracker topology from geometry
+   edm::ESHandle<TrackerTopology> tTopoHandle;
+   iSetup.get<TrackerTopologyRcd>().get(tTopoHandle);
+   const TrackerTopology *const tTopo = tTopoHandle.product();
 
-    //Beamspot Handle
-    reco::BeamSpot beamSpot;
-    edm::Handle<reco::BeamSpot> beamSpotHandle_;
-    iEvent.getByToken(beamspotToken_, beamSpotHandle_);
+   //Beamspot Handle for dxy(BS)
+   reco::BeamSpot beamSpot;
+   edm::Handle<reco::BeamSpot> beamSpotHandle_;
+   iEvent.getByToken(beamspotToken_, beamSpotHandle_);
 
-    //Vertex Handle for dxyPV
-    edm::Handle<reco::VertexCollection> vertexHandle_;
-    iEvent.getByToken(vertexToken_,vertexHandle_);
+   //Vertex Handle for dxy(PV)
+   edm::Handle<reco::VertexCollection> vertexHandle_;
+   iEvent.getByToken(vertexToken_,vertexHandle_);
     
-
    for(const auto track:*tracksHandle_)
    {  
      nTracks++; nTracksInEvent++; nTracksInRun++; nTracksInLuminosity++;
@@ -374,26 +345,19 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
         dzPV.push_back(dz);
      }
 
-     nValid.push_back(track.numberOfValidHits());
-     nBPIX.push_back(track.hitPattern().numberOfValidPixelBarrelHits());
-     nFPIX.push_back(track.hitPattern().numberOfValidPixelEndcapHits());
-     nTIB.push_back(track.hitPattern().numberOfValidStripTIBHits());
-     nTOB.push_back(track.hitPattern().numberOfValidStripTOBHits());
-     nTID.push_back(track.hitPattern().numberOfValidStripTIDHits());
-     nTEC.push_back(track.hitPattern().numberOfValidStripTECHits());
+     nh_Valid.push_back(track.numberOfValidHits());
+     nh_BPIX.push_back(track.hitPattern().numberOfValidPixelBarrelHits());
+     nh_FPIX.push_back(track.hitPattern().numberOfValidPixelEndcapHits());
+     nh_TIB.push_back(track.hitPattern().numberOfValidStripTIBHits());
+     nh_TOB.push_back(track.hitPattern().numberOfValidStripTOBHits());
+     nh_TID.push_back(track.hitPattern().numberOfValidStripTIDHits());
+     nh_TEC.push_back(track.hitPattern().numberOfValidStripTECHits());
 
-     nHits_Total=0;
      nHits_PIXEL=0;
-     nHits_FPIX=0;
      nHits_FPIXplus=0;
      nHits_FPIXminus=0;
-     nHits_BPIX=0;
-     nHits_TIB=0;
-     nHits_TID=0;
      nHits_TIDplus=0;
      nHits_TIDminus=0;
-     nHits_TOB=0;
-     nHits_TEC=0;
      nHits_TECplus=0;
      nHits_TECminus=0;
      nHits_ENDCAP=0;
@@ -413,28 +377,24 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          if (!(*iHit)->isValid()) continue; 
          float uOrientation(-999.F);
          
-     //   if (!(*iHit)->detUnit())  continue; // is it a single physical module? 
-  
          // do all the transformations here      
          LocalPoint lPModule(0., 0., 0.), lUDirection(1., 0., 0.);
          GlobalPoint gUDirection = geomDet->surface().toGlobal(lUDirection);
          GlobalPoint gPModule = geomDet->surface().toGlobal(lPModule); 
 
-         nHits_Total++;
          //             	 Hit information in PixelBarrel         	 //
          if (SubDetId == PixelSubdetector::PixelBarrel) 
          { 
-            nHits_BPIX++; nHits_PIXEL++;
+             nHits_PIXEL++;
          }
 	 //                      Hit information in PixelEndcap                  //   
          else if (SubDetId == PixelSubdetector::PixelEndcap) 
          { 
-            nHits_FPIX++; nHits_PIXEL++; nHits_ENDCAP++;
+             nHits_PIXEL++; nHits_ENDCAP++;
          }
          //                         Hit information in TIB                       //
          else if (SubDetId == SiStripDetId::TIB)
          { 
-            nHits_TIB++;
             uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
             Temp.push_back(uOrientation);
 //            Res_TIB_xPrime.push_back(uOrientation * resX * 10000);
@@ -442,7 +402,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          //                         Hit information in TID                       //
          else if (SubDetId == SiStripDetId::TID)
          { 
-            nHits_TID++; nHits_ENDCAP++;
+            nHits_ENDCAP++;
             if(tTopo->tidIsZMinusSide(detId))
             {  nHits_TIDminus++;
             }
@@ -455,12 +415,11 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          //                        Hit information in TOB                       //
          else if (SubDetId == SiStripDetId::TOB)
          {
-            nHits_TOB++;
          }
          //                        Hit information in TEC             		//
          else if (SubDetId == SiStripDetId::TEC)
          { 
-            nHits_TEC++; nHits_ENDCAP++;
+            nHits_ENDCAP++;
             if(tTopo->tecIsZMinusSide(detId))
             {  nHits_TECminus++;
             }
@@ -473,18 +432,11 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
 
      }  //Hits Loop
 
-     nh_Total.push_back(nHits_Total);
      nh_PIXEL.push_back(nHits_PIXEL);
-     nh_BPIX.push_back(nHits_BPIX);
-     nh_FPIX.push_back(nHits_FPIX);
      nh_FPIXplus.push_back(nHits_FPIXplus);
      nh_FPIXminus.push_back(nHits_FPIXminus);
-     nh_TIB.push_back(nHits_TIB);
-     nh_TOB.push_back(nHits_TOB);
-     nh_TID.push_back(nHits_TID);
      nh_TIDplus.push_back(nHits_TIDplus);
      nh_TIDminus.push_back(nHits_TIDminus);
-     nh_TEC.push_back(nHits_TEC);
      nh_TECplus.push_back(nHits_TECplus);
      nh_TECminus.push_back(nHits_TECminus);
      nh_ENDCAP.push_back(nHits_ENDCAP);
@@ -524,7 +476,6 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("chi2_Prob", &chi2_Prob);
    treeEvent->Branch("d0", &d0);
    treeEvent->Branch("dz", &dz);
-//   treeEvent->Branch("dxy", &dxy);
    treeEvent->Branch("d0PV", &d0PV);
    treeEvent->Branch("dxyPV", &dxyPV);
    treeEvent->Branch("dzPV", &dzPV);
@@ -532,7 +483,7 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("dxyBS", &dxyBS);
    treeEvent->Branch("dzBS", &dzBS);
 
-   treeEvent->Branch("nHits", &nh_Total);
+   treeEvent->Branch("nHitsValid", &nh_Valid);
    treeEvent->Branch("nHitsPIXEL", &nh_PIXEL);
    treeEvent->Branch("nHitsBPIX", &nh_BPIX);
    treeEvent->Branch("nHitsFPIX", &nh_FPIX);
@@ -550,14 +501,6 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("nHitsENDCAPplus", &nh_ENDCAPplus);
    treeEvent->Branch("nHitsENDCAPminus", &nh_ENDCAPminus);
 
-   treeEvent->Branch("nHitsValid",&nValid);
-   treeEvent->Branch("nBPIX", &nBPIX);
-   treeEvent->Branch("nFPIX", &nFPIX);
-   treeEvent->Branch("nTIB", &nTIB);
-   treeEvent->Branch("nTOB", &nTOB);
-   treeEvent->Branch("nTID", &nTID);
-   treeEvent->Branch("nTEC", &nTEC);
-
 /* treeEvent->Branch("ResBPIXxPrime",&Res_BPIX_xPrime);
    treeEvent->Branch("ResFPIXxPrime", &Res_FPIX_xPrime);
    treeEvent->Branch("ResFPIXplusxPrime", &Res_FPIXplus_xPrime);
@@ -567,12 +510,12 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("ResTOBxPrime", &Res_TOB_xPrime);
    treeEvent->Branch("ResTECxPrime", &Res_TEC_xPrime);
 */
-/* treeEvent->Branch("TracksPerEvent",&Tracks_In_Event);
+   treeEvent->Branch("TracksPerEvent",&Tracks_In_Event);
    treeEvent->Branch("EventsPerRun",&Events_In_Run);
    treeEvent->Branch("TracksPerRun",&Tracks_In_Run);
    treeEvent->Branch("EventsPerLuminosity",&Events_In_Luminosity);
    treeEvent->Branch("TracksPerLuminosity",&Tracks_In_Luminosity);
-*/
+
    treeEvent->Branch("uOrientation",&Temp);
 }
 
