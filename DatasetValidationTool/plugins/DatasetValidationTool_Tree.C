@@ -50,18 +50,13 @@
 
 #include "FWCore/Framework/interface/EventSetup.h"
 */
-#include "CalibTracker/StandaloneTrackerTopology/interface/StandaloneTrackerTopology.h"
-#include "CommonTools/TrackerMap/interface/TrackerMap.h"
 #include "CommonTools/UtilAlgos/interface/TFileService.h"
 #include "CommonTools/Utils/interface/TFileDirectory.h"
 #include "CondFormats/DataRecord/interface/RunSummaryRcd.h"
 #include "CondFormats/DataRecord/interface/SiStripCondDataRecords.h"
 #include "CondFormats/RunInfo/interface/RunInfo.h"
-#include "CondFormats/SiStripObjects/interface/SiStripLatency.h"
 #include "DataFormats/BeamSpot/interface/BeamSpot.h"
 #include "DataFormats/Common/interface/Handle.h"
-#include "DataFormats/Common/interface/RefTraits.h"
-#include "DataFormats/Common/interface/TriggerResults.h"
 #include "DataFormats/DetId/interface/DetId.h"
 #include "DataFormats/GeometrySurface/interface/Plane.h"
 #include "DataFormats/GeometryVector/interface/GlobalPoint.h"
@@ -91,19 +86,13 @@
 #include "DataFormats/TrackingRecHit/interface/TrackingRecHitFwd.h"
 #include "DataFormats/VertexReco/interface/Vertex.h"
 #include "DataFormats/VertexReco/interface/VertexFwd.h"
-#include "FWCore/Common/interface/TriggerNames.h"
 #include "FWCore/Framework/interface/ESHandle.h"
 #include "FWCore/Framework/interface/Event.h"
 #include "FWCore/Framework/interface/EventSetup.h"
 #include "FWCore/Framework/interface/MakerMacros.h"
 #include "FWCore/Framework/interface/one/EDAnalyzer.h"
-#include "FWCore/Framework/src/WorkerMaker.h"
-#include "FWCore/MessageLogger/interface/ErrorObj.h"
 #include "FWCore/MessageLogger/interface/MessageLogger.h"
-#include "FWCore/ParameterSet/interface/ConfigurationDescriptions.h"
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
-#include "FWCore/ParameterSet/interface/ParameterSetDescription.h"
-#include "FWCore/ParameterSet/interface/ParameterSetDescriptionFiller.h"
 #include "FWCore/ServiceRegistry/interface/Service.h"
 #include "FWCore/Utilities/interface/EDGetToken.h"
 #include "FWCore/Utilities/interface/ESGetToken.h"
@@ -111,22 +100,14 @@
 #include "Geometry/Records/interface/TrackerDigiGeometryRecord.h"
 #include "Geometry/Records/interface/TrackerTopologyRcd.h"
 #include "Geometry/TrackerGeometryBuilder/interface/TrackerGeometry.h"
-#include "MagneticField/Engine/interface/MagneticField.h"
-#include "MagneticField/Records/interface/IdealMagneticFieldRecord.h"
 
 #include <TTree.h>
 #include <TMath.h>
+
 //
 // class declaration
 //
-
-// If the analyzer does not use TFileService, please remove
-// the template argument to the base class so the class inherits
-// from  edm::one::EDAnalyzer<> and also remove the line from
-// constructor "usesResource("TFileService");"
-// This will improve performance in multithreaded jobs.
-
-class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::SharedResources>
+class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRuns, edm::one::WatchLuminosityBlocks, edm::one::SharedResources>
 {
    public:
       explicit DatasetValidationTool_Tree(const edm::ParameterSet&);
@@ -140,20 +121,19 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::SharedRe
       virtual void analyze(const edm::Event&, const edm::EventSetup&) override;
       virtual void endJob() override;
 
-//      virtual void beginRun(edm::Run const&, edm::EventSetup const&) override; 
-//      virtual void endRun(edm::Run const&, edm::EventSetup const&) override;
-//      virtual void beginLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&) override;
-//      virtual void endLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&) override;
+      virtual void beginRun(edm::Run const&, edm::EventSetup const&) override; 
+      virtual void endRun(edm::Run const&, edm::EventSetup const&) override;
+      virtual void beginLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&) override;
+      virtual void endLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&) override;
 
       // ----------member data ---------------------------
       edm::EDGetTokenT<reco::TrackCollection> tracksToken_;
-      // tokens for the event setup
-//      const edm::ESGetToken<MagneticField, IdealMagneticFieldRecord> magFieldToken_;     
-//      const edm::ESGetToken<TrackerGeometry,TrackerDigiGeometryRecord> geomToken_;
+      edm::EDGetTokenT<reco::BeamSpot> beamspotToken_;
+      edm::EDGetTokenT<reco::VertexCollection> vertexToken_;
  
       TTree* treeEvent;
      
-      int nTracks,nEvents;//,nTracksInEvent,nEventsInRun,nTracksInRun;
+      int nTracks,nEvents,nTracksInEvent,nEventsInRun,nTracksInRun,nTracksInLuminosity,nEventsInLuminosity;
       int nHits_Total,nHits_PIXEL,nHits_FPIX,nHits_FPIXplus,nHits_FPIXminus,nHits_BPIX,nHits_TIB,nHits_TID,nHits_TIDplus,nHits_TIDminus,nHits_TOB,nHits_TEC,nHits_TECplus,nHits_TECminus,nHits_ENDCAP,nHits_ENDCAPplus,nHits_ENDCAPminus;
       
       std::vector<double> charge;
@@ -165,16 +145,15 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::SharedRe
       std::vector<double> chi2;
       std::vector<double> chi2_ndf;
       std::vector<double> chi2_Prob;
-//      std::vector<double> vx;
-//      std::vector<double> vy;
-//      std::vector<double> vz;
       std::vector<double> d0;
       std::vector<double> dz;
       std::vector<double> dxy;
-//      std::vector<double> d0PV;
-//      std::vector<double> d0BS;
-//      std::vector<double> dzPV;
-//      std::vector<double> dzBS;
+      std::vector<double> d0PV;
+      std::vector<double> dzPV;
+      std::vector<double> dxyPV;
+      std::vector<double> d0BS;
+      std::vector<double> dzBS;
+      std::vector<double> dxyBS;
 
       std::vector<int> nh_Total;
       std::vector<int> nh_PIXEL;
@@ -212,12 +191,12 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::SharedRe
       std::vector<double> Res_TEC_xPrime;
 */ 
 
-/*     std::vector<int> Tracks_In_Event;
+     std::vector<int> Tracks_In_Event;
      std::vector<int> Events_In_Run;
      std::vector<int> Tracks_In_Run;
      std::vector<int> Events_In_Luminosity;
      std::vector<int> Tracks_In_Luminosity;
-*/
+
 
 };
 
@@ -233,9 +212,9 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::SharedRe
 // constructors and destructor
 //
 DatasetValidationTool_Tree::DatasetValidationTool_Tree(const edm::ParameterSet& iConfig)
-: tracksToken_(consumes<reco::TrackCollection>(iConfig.getParameter<edm::InputTag>("tracks")))//,
-//   geomToken_(esConsumes<TrackerGeometry,TrackerDigiGeometryRecord>())
-//  magFieldToken_(esConsumes<MagneticField, IdealMagneticFieldRecord>())
+: tracksToken_(consumes<reco::TrackCollection>(iConfig.getParameter<edm::InputTag>("tracks"))),
+  beamspotToken_(consumes<reco::BeamSpot>(iConfig.getParameter<edm::InputTag>("BS"))),
+  vertexToken_(consumes<reco::VertexCollection>(iConfig.getParameter<edm::InputTag>("vertices")))
 {
    //now do what ever initialization is needed
    usesResource("TFileService");
@@ -247,10 +226,6 @@ DatasetValidationTool_Tree::DatasetValidationTool_Tree(const edm::ParameterSet& 
 
 DatasetValidationTool_Tree::~DatasetValidationTool_Tree()
 {
- 
-   // do anything here that needs to be done at desctruction time
-   // (e.g. close files, deallocate resources etc.)
-
 }
 
 
@@ -261,8 +236,8 @@ DatasetValidationTool_Tree::~DatasetValidationTool_Tree()
 // ------------ method called for each event  ------------
 void
 DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
-{
- //  nEventsInRun++,nEventsInLuminosity++;
+{ 
+   nTracksInEvent=0;
 
    charge.clear();
    p.clear();
@@ -273,16 +248,15 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    chi2.clear();
    chi2_ndf.clear();
    chi2_Prob.clear();
-/*   vx.clear();
-   vy.clear();
-   vz.clear();
-*/   d0.clear();
+   d0.clear();
    dz.clear();
    dxy.clear();
-// d0PV.clear();
-//   d0BS.clear();
-// dzPV.clear();
-//   dzBS.clear();
+   d0PV.clear();
+   dxyPV.clear();
+   dzPV.clear();
+   dxyBS.clear();
+   d0BS.clear();
+   dzBS.clear();
 
    nh_Total.clear();
    nh_PIXEL.clear();
@@ -340,14 +314,24 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
     iSetup.get<TrackerDigiGeometryRecord>().get(geometry);
     const TrackerGeometry *theGeometry = &(*geometry);
 
-   //Retrieve tracker topology from geometry
-     edm::ESHandle<TrackerTopology> tTopoHandle;
-     iSetup.get<TrackerTopologyRcd>().get(tTopoHandle);
-     const TrackerTopology *const tTopo = tTopoHandle.product();
+    //Retrieve tracker topology from geometry
+    edm::ESHandle<TrackerTopology> tTopoHandle;
+    iSetup.get<TrackerTopologyRcd>().get(tTopoHandle);
+    const TrackerTopology *const tTopo = tTopoHandle.product();
 
-   for(auto track:*tracksHandle_)
+    //Beamspot Handle
+    reco::BeamSpot beamSpot;
+    edm::Handle<reco::BeamSpot> beamSpotHandle_;
+    iEvent.getByToken(beamspotToken_, beamSpotHandle_);
+
+    //Vertex Handle for dxyPV
+    edm::Handle<reco::VertexCollection> vertexHandle_;
+    iEvent.getByToken(vertexToken_,vertexHandle_);
+    
+
+   for(const auto track:*tracksHandle_)
    {  
-     nTracks++;// nTracksInEvent++; nTracksInRun++;nTracksInLuminosity++;
+     nTracks++; nTracksInEvent++; nTracksInRun++; nTracksInLuminosity++;
 
      charge.push_back(track.charge());
      p.push_back(track.p());
@@ -358,11 +342,37 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
      chi2.push_back(track.chi2());
      chi2_ndf.push_back(track.normalizedChi2());
      chi2_Prob.push_back(TMath::Prob(track.chi2(), track.ndof()));
-/*     vx.push_back(track.vx());
-     vy.push_back(track.vy());
-     vz.push_back(track.vz());
-*/     d0.push_back(track.d0());
+     d0.push_back(track.d0());
      dz.push_back(track.dz());
+
+     if (beamSpotHandle_.isValid())
+     {
+        beamSpot = *beamSpotHandle_;
+        math::XYZPoint BSpoint(beamSpot.x0(), beamSpot.y0(), beamSpot.z0());
+        double dxy = track.dxy(BSpoint);
+        double dz = track.dz(BSpoint);
+        dxyBS.push_back(dxy);
+        d0BS.push_back(-dxy);
+        dzBS.push_back(dz);
+     }
+
+     if(vertexHandle_.isValid())
+     {
+        reco::Vertex vtx;
+        double min_dxy=100., dz=100.;
+        for(auto vtx=vertexHandle_->cbegin();vtx!=vertexHandle_->cend();++vtx)
+        {
+            math::XYZPoint Vpoint(vtx->x(), vtx->y(), vtx->z());
+            if(abs(min_dxy) > abs(track.dxy(Vpoint)))
+            {
+               min_dxy = track.dxy(Vpoint);
+               dz = track.dz(Vpoint);
+            }
+        }
+        dxyPV.push_back(min_dxy);
+        d0PV.push_back(-min_dxy);
+        dzPV.push_back(dz);
+     }
 
      nValid.push_back(track.numberOfValidHits());
      nBPIX.push_back(track.hitPattern().numberOfValidPixelBarrelHits());
@@ -390,10 +400,9 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
      nHits_ENDCAPplus=0;
      nHits_ENDCAPminus=0;
 
+     //auto const &residuals = track.extra()->residuals();
 
-     auto const &residuals = track.extra()->residuals();
-
-     int h_index = 1;
+     int h_index = 0;
      for(auto iHit = track.recHitsBegin(); iHit!=track.recHitsEnd(); ++iHit,++h_index)
      {  
                   
@@ -401,10 +410,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          const int SubDetId = detId.subdetId();
         
          const GeomDet *geomDet(theGeometry->idToDet(detId));
-  //         std::cout<<"Residuals: "<<resX<<std::endl;
          if (!(*iHit)->isValid()) continue; 
-         std::cout<<h_index<<std::endl;
-         double reX = residuals.residualX(h_index);
          float uOrientation(-999.F);
          
      //   if (!(*iHit)->detUnit())  continue; // is it a single physical module? 
@@ -430,7 +436,6 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          { 
             nHits_TIB++;
             uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
-//            std::cout<<"Uorientation: "<<uOrientation<<std::endl;
             Temp.push_back(uOrientation);
 //            Res_TIB_xPrime.push_back(uOrientation * resX * 10000);
          }
@@ -438,6 +443,14 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          else if (SubDetId == SiStripDetId::TID)
          { 
             nHits_TID++; nHits_ENDCAP++;
+            if(tTopo->tidIsZMinusSide(detId))
+            {  nHits_TIDminus++;
+            }
+            else
+            {
+               nHits_TIDplus++;
+            }
+
          }
          //                        Hit information in TOB                       //
          else if (SubDetId == SiStripDetId::TOB)
@@ -478,14 +491,11 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
      nh_ENDCAPplus.push_back(nHits_ENDCAPplus);
      nh_ENDCAPminus.push_back(nHits_ENDCAPminus);
 
-//     GlobalPoint gPoint(0.,0.,0.);
-//     double theLocalMagFieldInInverseGeV = magneticField_->inInverseGeV(gPoint).z();
-
    } //Tracks Loop
 
    treeEvent->Fill();
-   nEvents++;
- //  Tracks_In_Event.push_back(nTracksInEvent);
+   nEvents++;  nEventsInRun++;  nEventsInLuminosity++;
+   Tracks_In_Event.push_back(nTracksInEvent);
 
 #ifdef THIS_IS_AN_EVENT_EXAMPLE
    Handle<ExampleData> pIn;
@@ -503,7 +513,6 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
 void 
 DatasetValidationTool_Tree::beginJob()
 {
-//   nTracksInEvent=0;
    treeEvent->Branch("charge", &charge);
    treeEvent->Branch("p", &p);
    treeEvent->Branch("pt", &pt);
@@ -513,16 +522,15 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("chi2", &chi2);
    treeEvent->Branch("chi2_ndf", &chi2_ndf);
    treeEvent->Branch("chi2_Prob", &chi2_Prob);
- //  treeEvent->Branch("vx", &vx);
-//   treeEvent->Branch("vy", &vy);
-//   treeEvent->Branch("vz", &vz);
    treeEvent->Branch("d0", &d0);
    treeEvent->Branch("dz", &dz);
-   treeEvent->Branch("dxy", &dxy);
-//   treeEvent->Branch("d0PV", &d0PV);
-//   treeEvent->Branch("d0BS", &d0BS);
-//   treeEvent->Branch("dzPV", &dzPV);
-//   treeEvent->Branch("dzBS", &dzBS);
+//   treeEvent->Branch("dxy", &dxy);
+   treeEvent->Branch("d0PV", &d0PV);
+   treeEvent->Branch("dxyPV", &dxyPV);
+   treeEvent->Branch("dzPV", &dzPV);
+   treeEvent->Branch("d0BS", &d0BS);
+   treeEvent->Branch("dxyBS", &dxyBS);
+   treeEvent->Branch("dzBS", &dzBS);
 
    treeEvent->Branch("nHits", &nh_Total);
    treeEvent->Branch("nHitsPIXEL", &nh_PIXEL);
@@ -576,21 +584,37 @@ DatasetValidationTool_Tree::endJob()
    std::cout<<"Tracks: "<<nTracks<<std::endl;
 //   std::cout<<"TracksInEvent: "<<nTracksInEvent<<std::endl;
  }
-/*
+
 // ------------ method called when starting to processes a run  ------------
 void
 DatasetValidationTool_Tree::beginRun(edm::Run const&, edm::EventSetup const&)
-{   nEventsInRun=0;nTracksInRun=0;
+{   
+   nEventsInRun=0; nTracksInRun=0;
 }
 
 // ------------ method called when ending the processing of a run  ------------
 void
 DatasetValidationTool_Tree::endRun(edm::Run const&, edm::EventSetup const&)
-{   Events_In_Run.push_back(nEventsInRun); 
+{  
+    Events_In_Run.push_back(nEventsInRun); 
     Tracks_In_Run.push_back(nTracksInRun);
 } 
- */      
 
+// ------------ method called when starting to processes a luminosity block  ------------
+void
+DatasetValidationTool_Tree::beginLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&)
+{ 
+    nEventsInLuminosity=0; nTracksInLuminosity=0;
+}
+
+// ------------ method called when ending the processing of a luminosity block  ------------
+void
+DatasetValidationTool_Tree::endLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&)
+{
+    Events_In_Luminosity.push_back(nEventsInLuminosity);
+    Tracks_In_Luminosity.push_back(nTracksInLuminosity);
+}
+       
 // ------------ method fills 'descriptions' with the allowed parameters for the module  ------------
 void
 DatasetValidationTool_Tree::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
