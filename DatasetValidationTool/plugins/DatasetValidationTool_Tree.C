@@ -103,7 +103,7 @@
 
 #include <TTree.h>
 #include <TMath.h>
-
+#include <TLorentzVector.h>
 //
 // class declaration
 //
@@ -132,6 +132,8 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       edm::EDGetTokenT<reco::VertexCollection> vertexToken_;
  
       TTree* treeEvent;
+      bool isResonance;
+      
      
       int nTracks,nEvents,nTracksInEvent,nEventsInRun,nTracksInRun,nTracksInLuminosity,nEventsInLuminosity;
       int nHits_PIXEL,nHits_FPIXplus,nHits_FPIXminus,nHits_TIDplus,nHits_TIDminus,nHits_TECplus,nHits_TECminus,nHits_ENDCAP,nHits_ENDCAPplus,nHits_ENDCAPminus;
@@ -183,6 +185,11 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       std::vector<double> Res_TOB_xPrime;
       std::vector<double> Res_TEC_xPrime;
 */ 
+     //----- Resonances------//
+     std::vector<double> Resonance;
+     std::vector<double> Resonance_Eta;
+     std::vector<double> Resonance_Pt;
+
      //-----Multiplicity-----//
      std::vector<int> Tracks_In_Event;
      std::vector<int> Events_In_Run;
@@ -213,6 +220,8 @@ DatasetValidationTool_Tree::DatasetValidationTool_Tree(const edm::ParameterSet& 
    usesResource("TFileService");
    edm::Service<TFileService> fs;
    treeEvent = fs->make<TTree>("Event", "");
+   isResonance = iConfig.getParameter<bool>("IsResonance");
+
    nTracks=0;nEvents=0;
 }
 
@@ -275,12 +284,16 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    Res_TOB_xPrime.clear();
    Res_TEC_xPrime.clear();
 */
+   Resonance.clear();
+   Resonance_Eta.clear();
+   Resonance_Pt.clear();
 
    using namespace edm;
 
    edm::Handle<reco::TrackCollection> tracksHandle_;
    iEvent.getByToken(tracksToken_,tracksHandle_);
-
+   const reco::TrackCollection tC = *(tracksHandle_.product());   
+ 
    // Geometry setup
    edm::ESHandle<TrackerGeometry> geometry;
    iSetup.get<TrackerDigiGeometryRecord>().get(geometry);
@@ -300,28 +313,28 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    edm::Handle<reco::VertexCollection> vertexHandle_;
    iEvent.getByToken(vertexToken_,vertexHandle_);
     
-   for(const auto track:*tracksHandle_)
+   for(reco::TrackCollection::const_iterator track=tC.begin(); track!=tC.end(); track++)
    {  
      nTracks++; nTracksInEvent++; nTracksInRun++; nTracksInLuminosity++;
 
-     charge.push_back(track.charge());
-     p.push_back(track.p());
-     pt.push_back(track.pt());
-     eta.push_back(track.eta());
-     theta.push_back(track.theta());
-     phi.push_back(track.phi());
-     chi2.push_back(track.chi2());
-     chi2_ndf.push_back(track.normalizedChi2());
-     chi2_Prob.push_back(TMath::Prob(track.chi2(), track.ndof()));
-     d0.push_back(track.d0());
-     dz.push_back(track.dz());
+     charge.push_back(track->charge());
+     p.push_back(track->p());
+     pt.push_back(track->pt());
+     eta.push_back(track->eta());
+     theta.push_back(track->theta());
+     phi.push_back(track->phi());
+     chi2.push_back(track->chi2());
+     chi2_ndf.push_back(track->normalizedChi2());
+     chi2_Prob.push_back(TMath::Prob(track->chi2(), track->ndof()));
+     d0.push_back(track->d0());
+     dz.push_back(track->dz());
 
      if (beamSpotHandle_.isValid())
      {
         beamSpot = *beamSpotHandle_;
         math::XYZPoint BSpoint(beamSpot.x0(), beamSpot.y0(), beamSpot.z0());
-        double dxy = track.dxy(BSpoint);
-        double dz = track.dz(BSpoint);
+        double dxy = track->dxy(BSpoint);
+        double dz = track->dz(BSpoint);
         dxyBS.push_back(dxy);
         d0BS.push_back(-dxy);
         dzBS.push_back(dz);
@@ -334,10 +347,10 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
         for(auto vtx=vertexHandle_->cbegin();vtx!=vertexHandle_->cend();++vtx)
         {
             math::XYZPoint Vpoint(vtx->x(), vtx->y(), vtx->z());
-            if(abs(min_dxy) > abs(track.dxy(Vpoint)))
+            if(abs(min_dxy) > abs(track->dxy(Vpoint)))
             {
-               min_dxy = track.dxy(Vpoint);
-               dz = track.dz(Vpoint);
+               min_dxy = track->dxy(Vpoint);
+               dz = track->dz(Vpoint);
             }
         }
         dxyPV.push_back(min_dxy);
@@ -345,13 +358,32 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
         dzPV.push_back(dz);
      }
 
-     nh_Valid.push_back(track.numberOfValidHits());
-     nh_BPIX.push_back(track.hitPattern().numberOfValidPixelBarrelHits());
-     nh_FPIX.push_back(track.hitPattern().numberOfValidPixelEndcapHits());
-     nh_TIB.push_back(track.hitPattern().numberOfValidStripTIBHits());
-     nh_TOB.push_back(track.hitPattern().numberOfValidStripTOBHits());
-     nh_TID.push_back(track.hitPattern().numberOfValidStripTIDHits());
-     nh_TEC.push_back(track.hitPattern().numberOfValidStripTECHits());
+     //---------------------------Resonances-----------------------------//
+     if(isResonance)
+     {
+         double InvMass=0;
+         for (reco::TrackCollection::const_iterator trk2=track+1; trk2!=tC.end(); trk2++)
+         {   
+             if(track->charge()*trk2->charge()>0) continue;
+             TLorentzVector track1,track2,mother;
+             track1.SetPtEtaPhiE(track->pt(),track->eta(),track->phi(),sqrt((track->p()*track->p())+(0.105*0.105)));
+             track2.SetPtEtaPhiE(trk2->pt(),trk2->eta(),trk2->phi(),sqrt((trk2->p()*trk2->p())+(0.105*0.105)));
+             mother=track1+track2; InvMass=mother.M();
+             if(InvMass<60. || InvMass>120.) continue;
+             Resonance.push_back(InvMass);
+             Resonance_Eta.push_back(mother.Eta());
+             Resonance_Pt.push_back(mother.Pt());             
+         }
+     }
+
+     //-------------------- Hits and Residuals --------------------------//
+     nh_Valid.push_back(track->numberOfValidHits());
+     nh_BPIX.push_back(track->hitPattern().numberOfValidPixelBarrelHits());
+     nh_FPIX.push_back(track->hitPattern().numberOfValidPixelEndcapHits());
+     nh_TIB.push_back(track->hitPattern().numberOfValidStripTIBHits());
+     nh_TOB.push_back(track->hitPattern().numberOfValidStripTOBHits());
+     nh_TID.push_back(track->hitPattern().numberOfValidStripTIDHits());
+     nh_TEC.push_back(track->hitPattern().numberOfValidStripTECHits());
 
      nHits_PIXEL=0;
      nHits_FPIXplus=0;
@@ -367,7 +399,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
      //auto const &residuals = track.extra()->residuals();
 
      int h_index = 0;
-     for(auto iHit = track.recHitsBegin(); iHit!=track.recHitsEnd(); ++iHit,++h_index)
+     for(auto iHit = track->recHitsBegin(); iHit!=track->recHitsEnd(); ++iHit,++h_index)
      {  
                   
          const DetId detId=(*iHit)->geographicalId();
@@ -389,8 +421,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          }
 	 //                      Hit information in PixelEndcap                  //   
          else if (SubDetId == PixelSubdetector::PixelEndcap) 
-         { 
-             nHits_PIXEL++; nHits_ENDCAP++;
+         {  nHits_PIXEL++; nHits_ENDCAP++;
          }
          //                         Hit information in TIB                       //
          else if (SubDetId == SiStripDetId::TIB)
@@ -404,13 +435,9 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          { 
             nHits_ENDCAP++;
             if(tTopo->tidIsZMinusSide(detId))
-            {  nHits_TIDminus++;
-            }
+            {  nHits_TIDminus++; }
             else
-            {
-               nHits_TIDplus++;
-            }
-
+            {  nHits_TIDplus++; }
          }
          //                        Hit information in TOB                       //
          else if (SubDetId == SiStripDetId::TOB)
@@ -421,13 +448,9 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          { 
             nHits_ENDCAP++;
             if(tTopo->tecIsZMinusSide(detId))
-            {  nHits_TECminus++;
-            }
+            {  nHits_TECminus++; }
             else
-            {
-               nHits_TECplus++;
-            }
-
+            {  nHits_TECplus++; }
          } 
 
      }  //Hits Loop
@@ -510,6 +533,10 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("ResTOBxPrime", &Res_TOB_xPrime);
    treeEvent->Branch("ResTECxPrime", &Res_TEC_xPrime);
 */
+   treeEvent->Branch("ResonanceMass", &Resonance);
+   treeEvent->Branch("ResonanceEta", &Resonance_Eta);
+   treeEvent->Branch("ResonancePt", &Resonance_Pt);
+    
    treeEvent->Branch("TracksPerEvent",&Tracks_In_Event);
    treeEvent->Branch("EventsPerRun",&Events_In_Run);
    treeEvent->Branch("TracksPerRun",&Tracks_In_Run);
