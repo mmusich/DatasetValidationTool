@@ -131,7 +131,7 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       edm::EDGetTokenT<reco::BeamSpot> beamspotToken_;
       edm::EDGetTokenT<reco::VertexCollection> vertexToken_;
  
-      TTree* treeEvent;
+      TTree *treeEvent, *treeRun, *treeLuminosity;
       bool isResonance;
       
      
@@ -176,15 +176,15 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       std::vector<int> nh_ENDCAPplus;
       std::vector<int> nh_ENDCAPminus;
       //-----Residuals-----//
-/*      std::vector<double> Res_BPIX_xPrime; 
+      std::vector<double> Res_BPIX_xPrime; 
       std::vector<double> Res_FPIX_xPrime;
-      std::vector<double> Res_FPIXplus_xPrime;
-      std::vector<double> Res_FPIXminus_xPrime;
+//      std::vector<double> Res_FPIXplus_xPrime;
+//      std::vector<double> Res_FPIXminus_xPrime;
       std::vector<double> Res_TIB_xPrime;
       std::vector<double> Res_TID_xPrime;
       std::vector<double> Res_TOB_xPrime;
       std::vector<double> Res_TEC_xPrime;
-*/ 
+ 
      //----- Resonances------//
      std::vector<double> Resonance;
      std::vector<double> Resonance_Eta;
@@ -220,6 +220,8 @@ DatasetValidationTool_Tree::DatasetValidationTool_Tree(const edm::ParameterSet& 
    usesResource("TFileService");
    edm::Service<TFileService> fs;
    treeEvent = fs->make<TTree>("Event", "");
+   treeRun = fs->make<TTree>("Run","");
+   treeLuminosity = fs->make<TTree>("Luminosity","");
    isResonance = iConfig.getParameter<bool>("IsResonance");
 
    nTracks=0;nEvents=0;
@@ -237,7 +239,8 @@ DatasetValidationTool_Tree::~DatasetValidationTool_Tree()
 // ------------ method called for each event  ------------
 void
 DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
-{ 
+{
+   nTracksInEvent=0; 
    charge.clear();
    p.clear();
    pt.clear();
@@ -275,18 +278,21 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    nh_ENDCAPplus.clear();
    nh_ENDCAPminus.clear();
 
-/*   Res_BPIX_xPrime.clear();
+   Res_BPIX_xPrime.clear();
    Res_FPIX_xPrime.clear();
-   Res_FPIXplus_xPrime.clear();
-   Res_FPIXminus_xPrime.clear();
+//   Res_FPIXplus_xPrime.clear();
+//   Res_FPIXminus_xPrime.clear();
    Res_TIB_xPrime.clear();
    Res_TID_xPrime.clear();
    Res_TOB_xPrime.clear();
    Res_TEC_xPrime.clear();
-*/
+
    Resonance.clear();
    Resonance_Eta.clear();
    Resonance_Pt.clear();
+
+   Tracks_In_Event.clear();
+   Temp.clear();
 
    using namespace edm;
 
@@ -369,7 +375,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
              track1.SetPtEtaPhiE(track->pt(),track->eta(),track->phi(),sqrt((track->p()*track->p())+(0.105*0.105)));
              track2.SetPtEtaPhiE(trk2->pt(),trk2->eta(),trk2->phi(),sqrt((trk2->p()*trk2->p())+(0.105*0.105)));
              mother=track1+track2; InvMass=mother.M();
-             if(InvMass<60. || InvMass>120.) continue;
+             if(InvMass<0. || InvMass>5.) continue;
              Resonance.push_back(InvMass);
              Resonance_Eta.push_back(mother.Eta());
              Resonance_Pt.push_back(mother.Pt());             
@@ -455,6 +461,69 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
 
      }  //Hits Loop
 
+   auto const& trajParams = track->extra()->trajParams();
+   auto const& residuals = track->extra()->residuals();
+ 
+   assert(trajParams.size() == track->recHitsSize());
+   auto hb = track->recHitsBegin();
+   for (unsigned int h = 0; h < track->recHitsSize(); h++) 
+   {
+     auto hit = *(hb + h);
+     if (!hit->isValid()) { continue; }
+     const DetId& hit_detId = hit->geographicalId();
+     const GeomDet *geomDet(theGeometry->idToDet(detId));
+     auto IntRawDetID = hit_detId.rawId();
+     auto IntSubDetID = hit_detId.subdetId();
+     if (IntSubDetID == 0) {  continue; }
+//     if (!(*iHit)->detUnit())  {  continue;  }// is it a single physical module?
+
+     double resX = residuals.residualX(h);
+     float uOrientation(-999.F), vOrientation(-999.F);
+     LocalPoint lPModule(0., 0., 0.), lUDirection(1., 0., 0.), lVDirection(0., 1., 0.), lWDirection(0., 0., 1.);
+      
+
+     // do all the transformations here
+     GlobalPoint gUDirection = geomDet->surface().toGlobal(lUDirection);
+     GlobalPoint gVDirection = geomDet->surface().toGlobal(lVDirection);
+//     GlobalPoint gWDirection = geomDet->surface().toGlobal(lWDirection);
+     GlobalPoint gPModule = geomDet->surface().toGlobal(lPModule);
+
+     if (IntSubDetID == PixelSubdetector::PixelBarrel || IntSubDetID == StripSubdetector::TIB || IntSubDetID == StripSubdetector::TOB) 
+     {
+         uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
+         vOrientation = gVDirection.z() - gPModule.z() >= 0 ? +1.F : -1.F;
+         switch(IntSubDetID)
+         {
+            case PixelSubdetector::PixelBarrel:
+            Res_BPIX_xPrime.push_back(uOrientation*resX *10000);
+            break;
+            case StripSubdetector::TIB:
+            Res_TIB_xPrime.push_back(uOrientation*resX *10000);
+            break;
+            case StripSubdetector::TOB:
+            Res_TOB_xPrime.push_back(uOrientation*resX *10000);
+            break;
+         }
+     }
+     else if ( IntSubDetID == PixelSubdetector::PixelEndcap || IntSubDetID == StripSubdetector::TID || IntSubDetID == StripSubdetector::TEC)     
+     {
+        uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
+        vOrientation = gVDirection.perp() - gPModule.perp() >= 0. ? +1.F : -1.F;
+        switch(IntSubDetID)
+        {
+           case PixelSubdetector::PixelEndcap:
+           Res_FPIX_xPrime.push_back(uOrientation*resX *10000);
+           break;
+           case StripSubdetector::TID:
+           Res_TID_xPrime.push_back(uOrientation*resX *10000);
+           break;
+           case StripSubdetector::TEC:
+           Res_TEC_xPrime.push_back(uOrientation*resX *10000);
+           break;
+        }
+     }
+  }//Hits Loop
+
      nh_PIXEL.push_back(nHits_PIXEL);
      nh_FPIXplus.push_back(nHits_FPIXplus);
      nh_FPIXminus.push_back(nHits_FPIXminus);
@@ -468,9 +537,10 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
 
    } //Tracks Loop
 
-   treeEvent->Fill();
    nEvents++;  nEventsInRun++;  nEventsInLuminosity++;
    Tracks_In_Event.push_back(nTracksInEvent);
+   treeEvent->Fill();
+
 
 #ifdef THIS_IS_AN_EVENT_EXAMPLE
    Handle<ExampleData> pIn;
@@ -524,24 +594,24 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("nHitsENDCAPplus", &nh_ENDCAPplus);
    treeEvent->Branch("nHitsENDCAPminus", &nh_ENDCAPminus);
 
-/* treeEvent->Branch("ResBPIXxPrime",&Res_BPIX_xPrime);
+   treeEvent->Branch("ResBPIXxPrime",&Res_BPIX_xPrime);
    treeEvent->Branch("ResFPIXxPrime", &Res_FPIX_xPrime);
-   treeEvent->Branch("ResFPIXplusxPrime", &Res_FPIXplus_xPrime);
-   treeEvent->Branch("ResFPIXminusxPrime", &Res_FPIXminus_xPrime);
+//   treeEvent->Branch("ResFPIXplusxPrime", &Res_FPIXplus_xPrime);
+//   treeEvent->Branch("ResFPIXminusxPrime", &Res_FPIXminus_xPrime);
    treeEvent->Branch("ResTIBxPrime", &Res_TIB_xPrime);
    treeEvent->Branch("ResTIDxPrime", &Res_TID_xPrime);
    treeEvent->Branch("ResTOBxPrime", &Res_TOB_xPrime);
    treeEvent->Branch("ResTECxPrime", &Res_TEC_xPrime);
-*/
+
    treeEvent->Branch("ResonanceMass", &Resonance);
    treeEvent->Branch("ResonanceEta", &Resonance_Eta);
    treeEvent->Branch("ResonancePt", &Resonance_Pt);
     
    treeEvent->Branch("TracksPerEvent",&Tracks_In_Event);
-   treeEvent->Branch("EventsPerRun",&Events_In_Run);
-   treeEvent->Branch("TracksPerRun",&Tracks_In_Run);
-   treeEvent->Branch("EventsPerLuminosity",&Events_In_Luminosity);
-   treeEvent->Branch("TracksPerLuminosity",&Tracks_In_Luminosity);
+   treeRun->Branch("EventsPerRun",&Events_In_Run);
+   treeRun->Branch("TracksPerRun",&Tracks_In_Run);
+   treeLuminosity->Branch("EventsPerLuminosity",&Events_In_Luminosity);
+   treeLuminosity->Branch("TracksPerLuminosity",&Tracks_In_Luminosity);
 
    treeEvent->Branch("uOrientation",&Temp);
 }
@@ -560,6 +630,8 @@ void
 DatasetValidationTool_Tree::beginRun(edm::Run const&, edm::EventSetup const&)
 {   
    nEventsInRun=0; nTracksInRun=0;
+   Tracks_In_Run.clear();
+   Events_In_Run.clear();
 }
 
 // ------------ method called when ending the processing of a run  ------------
@@ -568,6 +640,7 @@ DatasetValidationTool_Tree::endRun(edm::Run const&, edm::EventSetup const&)
 {  
     Events_In_Run.push_back(nEventsInRun); 
     Tracks_In_Run.push_back(nTracksInRun);
+    treeRun->Fill();
 } 
 
 // ------------ method called when starting to processes a luminosity block  ------------
@@ -575,6 +648,8 @@ void
 DatasetValidationTool_Tree::beginLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&)
 { 
     nEventsInLuminosity=0; nTracksInLuminosity=0;
+    Tracks_In_Luminosity.clear();
+    Events_In_Luminosity.clear();
 }
 
 // ------------ method called when ending the processing of a luminosity block  ------------
@@ -583,6 +658,7 @@ DatasetValidationTool_Tree::endLuminosityBlock(edm::LuminosityBlock const&, edm:
 {
     Events_In_Luminosity.push_back(nEventsInLuminosity);
     Tracks_In_Luminosity.push_back(nTracksInLuminosity);
+    treeLuminosity->Fill();
 }
        
 // ------------ method fills 'descriptions' with the allowed parameters for the module  ------------
