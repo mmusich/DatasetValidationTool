@@ -278,21 +278,11 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    nh_ENDCAPplus.clear();
    nh_ENDCAPminus.clear();
 
-   Res_BPIX_xPrime.clear();
-   Res_FPIX_xPrime.clear();
-//   Res_FPIXplus_xPrime.clear();
-//   Res_FPIXminus_xPrime.clear();
-   Res_TIB_xPrime.clear();
-   Res_TID_xPrime.clear();
-   Res_TOB_xPrime.clear();
-   Res_TEC_xPrime.clear();
-
    Resonance.clear();
    Resonance_Eta.clear();
    Resonance_Pt.clear();
 
    Tracks_In_Event.clear();
-   Temp.clear();
 
    using namespace edm;
 
@@ -323,6 +313,16 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    {  
      nTracks++; nTracksInEvent++; nTracksInRun++; nTracksInLuminosity++;
 
+     Res_BPIX_xPrime.clear();
+     Res_FPIX_xPrime.clear();
+     //Res_FPIXplus_xPrime.clear();
+     //Res_FPIXminus_xPrime.clear();
+     Res_TIB_xPrime.clear();
+     Res_TID_xPrime.clear();
+     Res_TOB_xPrime.clear();
+     Res_TEC_xPrime.clear();
+     Temp.clear();
+           
      charge.push_back(track->charge());
      p.push_back(track->p());
      pt.push_back(track->pt());
@@ -402,7 +402,9 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
      nHits_ENDCAPplus=0;
      nHits_ENDCAPminus=0;
 
-     //auto const &residuals = track.extra()->residuals();
+     auto const &trajParams = track->extra()->trajParams();
+     auto const &residuals = track->extra()->residuals();
+     assert(trajParams.size() == track->recHitsSize());
 
      int h_index = 0;
      for(auto iHit = track->recHitsBegin(); iHit!=track->recHitsEnd(); ++iHit,++h_index)
@@ -413,13 +415,19 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
         
          const GeomDet *geomDet(theGeometry->idToDet(detId));
          if (!(*iHit)->isValid()) continue; 
-         float uOrientation(-999.F);
-         
-         // do all the transformations here      
-         LocalPoint lPModule(0., 0., 0.), lUDirection(1., 0., 0.);
-         GlobalPoint gUDirection = geomDet->surface().toGlobal(lUDirection);
-         GlobalPoint gPModule = geomDet->surface().toGlobal(lPModule); 
+//         if (SubDetID == 0) continue; 
+//         if (!(*iHit)->detUnit())  {  continue;  }// is it a single physical module?
+         float uOrientation(-999.F);//, vOrientation(-999.F);
+        
+         double resX = residuals.residualX(h_index); 
+       //  double resY = residuals.residualY(h_index);
 
+         // do all the transformations here      
+         LocalPoint lPModule(0., 0., 0.), lUDirection(1., 0., 0.), lVDirection(0., 1., 0.);
+         GlobalPoint gUDirection = geomDet->surface().toGlobal(lUDirection);
+       //  GlobalPoint gVDirection = geomDet->surface().toGlobal(lVDirection);
+         GlobalPoint gPModule = geomDet->surface().toGlobal(lPModule);          
+         
          //             	 Hit information in PixelBarrel         	 //
          if (SubDetId == PixelSubdetector::PixelBarrel) 
          { 
@@ -434,7 +442,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
          { 
             uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
             Temp.push_back(uOrientation);
-//            Res_TIB_xPrime.push_back(uOrientation * resX * 10000);
+            Res_TIB_xPrime.push_back(uOrientation * resX * 10000);
          }
          //                         Hit information in TID                       //
          else if (SubDetId == SiStripDetId::TID)
@@ -457,72 +465,50 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
             {  nHits_TECminus++; }
             else
             {  nHits_TECplus++; }
-         } 
+         }
+
+         //-------------------------------------- Filling Residuals -------------------------------------------//
+
+         if (SubDetId == PixelSubdetector::PixelBarrel || SubDetId == StripSubdetector::TIB || SubDetId == StripSubdetector::TOB) 
+         {
+            uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
+         //   vOrientation = gVDirection.z() - gPModule.z() >= 0 ? +1.F : -1.F;
+            switch(SubDetId)
+            {
+               case PixelSubdetector::PixelBarrel:
+               Res_BPIX_xPrime.push_back(uOrientation*resX*10000);
+              // Res_BPIX_xPrime.push_back(uOrientation*resX*10000);
+
+               break;
+               case StripSubdetector::TIB:
+//               Res_TIB_xPrime.push_back(uOrientation*resX*10000);
+               Temp.push_back(uOrientation*resX*10000);
+               break;
+               case StripSubdetector::TOB:
+               Res_TOB_xPrime.push_back(uOrientation*resX*10000);
+               break;
+            }
+        }
+        else if ( SubDetId == PixelSubdetector::PixelEndcap || SubDetId == StripSubdetector::TID || SubDetId == StripSubdetector::TEC)     
+        {
+           uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
+        //   vOrientation = gVDirection.perp() - gPModule.perp() >= 0. ? +1.F : -1.F;
+           switch(SubDetId)
+           {
+              case PixelSubdetector::PixelEndcap:
+              Res_FPIX_xPrime.push_back(uOrientation*resX*10000);
+              break;
+              case StripSubdetector::TID:
+              Res_TID_xPrime.push_back(uOrientation*resX*10000);
+              break;
+              case StripSubdetector::TEC:
+              Res_TEC_xPrime.push_back(uOrientation*resX*10000);
+              break;
+           }
+        } 
 
      }  //Hits Loop
 
-   auto const& trajParams = track->extra()->trajParams();
-   auto const& residuals = track->extra()->residuals();
- 
-   assert(trajParams.size() == track->recHitsSize());
-   auto hb = track->recHitsBegin();
-   for (unsigned int h = 0; h < track->recHitsSize(); h++) 
-   {
-     auto hit = *(hb + h);
-     if (!hit->isValid()) { continue; }
-     const DetId& hit_detId = hit->geographicalId();
-     const GeomDet *geomDet(theGeometry->idToDet(detId));
-     auto IntRawDetID = hit_detId.rawId();
-     auto IntSubDetID = hit_detId.subdetId();
-     if (IntSubDetID == 0) {  continue; }
-//     if (!(*iHit)->detUnit())  {  continue;  }// is it a single physical module?
-
-     double resX = residuals.residualX(h);
-     float uOrientation(-999.F), vOrientation(-999.F);
-     LocalPoint lPModule(0., 0., 0.), lUDirection(1., 0., 0.), lVDirection(0., 1., 0.), lWDirection(0., 0., 1.);
-      
-
-     // do all the transformations here
-     GlobalPoint gUDirection = geomDet->surface().toGlobal(lUDirection);
-     GlobalPoint gVDirection = geomDet->surface().toGlobal(lVDirection);
-//     GlobalPoint gWDirection = geomDet->surface().toGlobal(lWDirection);
-     GlobalPoint gPModule = geomDet->surface().toGlobal(lPModule);
-
-     if (IntSubDetID == PixelSubdetector::PixelBarrel || IntSubDetID == StripSubdetector::TIB || IntSubDetID == StripSubdetector::TOB) 
-     {
-         uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
-         vOrientation = gVDirection.z() - gPModule.z() >= 0 ? +1.F : -1.F;
-         switch(IntSubDetID)
-         {
-            case PixelSubdetector::PixelBarrel:
-            Res_BPIX_xPrime.push_back(uOrientation*resX *10000);
-            break;
-            case StripSubdetector::TIB:
-            Res_TIB_xPrime.push_back(uOrientation*resX *10000);
-            break;
-            case StripSubdetector::TOB:
-            Res_TOB_xPrime.push_back(uOrientation*resX *10000);
-            break;
-         }
-     }
-     else if ( IntSubDetID == PixelSubdetector::PixelEndcap || IntSubDetID == StripSubdetector::TID || IntSubDetID == StripSubdetector::TEC)     
-     {
-        uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
-        vOrientation = gVDirection.perp() - gPModule.perp() >= 0. ? +1.F : -1.F;
-        switch(IntSubDetID)
-        {
-           case PixelSubdetector::PixelEndcap:
-           Res_FPIX_xPrime.push_back(uOrientation*resX *10000);
-           break;
-           case StripSubdetector::TID:
-           Res_TID_xPrime.push_back(uOrientation*resX *10000);
-           break;
-           case StripSubdetector::TEC:
-           Res_TEC_xPrime.push_back(uOrientation*resX *10000);
-           break;
-        }
-     }
-  }//Hits Loop
 
      nh_PIXEL.push_back(nHits_PIXEL);
      nh_FPIXplus.push_back(nHits_FPIXplus);
@@ -613,7 +599,7 @@ DatasetValidationTool_Tree::beginJob()
    treeLuminosity->Branch("EventsPerLuminosity",&Events_In_Luminosity);
    treeLuminosity->Branch("TracksPerLuminosity",&Tracks_In_Luminosity);
 
-   treeEvent->Branch("uOrientation",&Temp);
+   treeEvent->Branch("Temp",&Temp);
 }
 
 // ------------ method called once each job just after ending the event loop  ------------
