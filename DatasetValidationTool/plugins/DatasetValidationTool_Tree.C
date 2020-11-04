@@ -115,7 +115,6 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
 
       static void fillDescriptions(edm::ConfigurationDescriptions& descriptions);
 
-
    private:
       virtual void beginJob() override;
       virtual void analyze(const edm::Event&, const edm::EventSetup&) override;
@@ -130,13 +129,14 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       edm::EDGetTokenT<reco::TrackCollection> tracksToken_;
       edm::EDGetTokenT<reco::BeamSpot> beamspotToken_;
       edm::EDGetTokenT<reco::VertexCollection> vertexToken_;
+
+      const bool isHit2D(const TrackingRecHit &hit);
  
       TTree *treeEvent, *treeRun, *treeLuminosity;
       bool isResonance;
-      
-     
-      int nTracks,nEvents,nTracksInEvent,nEventsInRun,nTracksInRun,nTracksInLuminosity,nEventsInLuminosity;
-      int nHits_PIXEL,nHits_FPIXplus,nHits_FPIXminus,nHits_TIDplus,nHits_TIDminus,nHits_TECplus,nHits_TECminus,nHits_ENDCAP,nHits_ENDCAPplus,nHits_ENDCAPminus;
+           
+      int nTracks,nEvents,nTracksInEvent,nEventsInRun,nTracksInRun,nTracksInLuminosity,nEventsInLuminosity,InvalidHit,nNotDetUnits,nZeroSubDetId;
+      int nHits_2D,nHits_PIXEL,nHits_FPIXplus,nHits_FPIXminus,nHits_TIDplus,nHits_TIDminus,nHits_TECplus,nHits_TECminus,nHits_ENDCAP,nHits_ENDCAPplus,nHits_ENDCAPminus;
      
       //-----Kinematic Variables-----// 
       std::vector<double> charge;
@@ -159,6 +159,7 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       std::vector<double> dxyBS;
       //-----Hits-----//
       std::vector<int> nh_Valid;
+      std::vector<int> nh_2D;
       std::vector<int> nh_PIXEL;
       std::vector<int> nh_BPIX;
       std::vector<int> nh_FPIX;
@@ -184,6 +185,14 @@ class DatasetValidationTool_Tree: public edm::one::EDAnalyzer<edm::one::WatchRun
       std::vector<double> Res_TID_xPrime;
       std::vector<double> Res_TOB_xPrime;
       std::vector<double> Res_TEC_xPrime;
+      std::vector<double> Res_BPIX_yPrime;
+      std::vector<double> Res_FPIX_yPrime;
+//      std::vector<double> Res_FPIXplus_yPrime;
+//      std::vector<double> Res_FPIXminus_yPrime;
+      std::vector<double> Res_TIB_yPrime;
+      std::vector<double> Res_TID_yPrime;
+      std::vector<double> Res_TOB_yPrime;
+      std::vector<double> Res_TEC_yPrime;
  
      //----- Resonances------//
      std::vector<double> Resonance;
@@ -224,7 +233,7 @@ DatasetValidationTool_Tree::DatasetValidationTool_Tree(const edm::ParameterSet& 
    treeLuminosity = fs->make<TTree>("Luminosity","");
    isResonance = iConfig.getParameter<bool>("IsResonance");
 
-   nTracks=0;nEvents=0;
+   nTracks=0;nEvents=0,InvalidHit=0,nNotDetUnits=0,nZeroSubDetId=0;
 }
 
 
@@ -261,6 +270,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
    dzBS.clear();
 
    nh_Valid.clear();
+   nh_2D.clear();
    nh_PIXEL.clear();
    nh_BPIX.clear();
    nh_FPIX.clear();
@@ -322,6 +332,14 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
      Res_TOB_xPrime.clear();
      Res_TEC_xPrime.clear();
      Temp.clear();
+     Res_BPIX_yPrime.clear();
+     Res_FPIX_yPrime.clear();
+//   Res_FPIXplus_yPrime.clear();
+//   Res_FPIXminus_yPrime.clear();
+     Res_TIB_yPrime.clear();
+     Res_TID_yPrime.clear();
+     Res_TOB_yPrime.clear();
+     Res_TEC_yPrime.clear();
            
      charge.push_back(track->charge());
      p.push_back(track->p());
@@ -391,6 +409,7 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
      nh_TID.push_back(track->hitPattern().numberOfValidStripTIDHits());
      nh_TEC.push_back(track->hitPattern().numberOfValidStripTECHits());
 
+     nHits_2D=0;
      nHits_PIXEL=0;
      nHits_FPIXplus=0;
      nHits_FPIXminus=0;
@@ -408,108 +427,91 @@ DatasetValidationTool_Tree::analyze(const edm::Event& iEvent, const edm::EventSe
 
      int h_index = 0;
      for(auto iHit = track->recHitsBegin(); iHit!=track->recHitsEnd(); ++iHit,++h_index)
-     {  
+     {   
                   
          const DetId detId=(*iHit)->geographicalId();
-         const int SubDetId = detId.subdetId();
-        
+         const int SubDetId = detId.subdetId();       
          const GeomDet *geomDet(theGeometry->idToDet(detId));
-         if (!(*iHit)->isValid()) continue; 
-//         if (SubDetID == 0) continue; 
-//         if (!(*iHit)->detUnit())  {  continue;  }// is it a single physical module?
-         float uOrientation(-999.F);//, vOrientation(-999.F);
+
+         if (!(*iHit)->isValid()) { InvalidHit++; continue; } 
+         if (SubDetId == 0) { nZeroSubDetId++; continue;} 
+         if (!(*iHit)->detUnit())  {  nNotDetUnits++; continue;  }// is it a single physical module?
+
+         if (isHit2D(**iHit)) { ++nHits_2D; }  // 2D Hit
+
+         float uOrientation(-999.F), vOrientation(-999.F);
         
          double resX = residuals.residualX(h_index); 
-       //  double resY = residuals.residualY(h_index);
+         double resY = residuals.residualY(h_index);
 
-         // do all the transformations here      
+         // All the transformations here      
          LocalPoint lPModule(0., 0., 0.), lUDirection(1., 0., 0.), lVDirection(0., 1., 0.);
          GlobalPoint gUDirection = geomDet->surface().toGlobal(lUDirection);
-       //  GlobalPoint gVDirection = geomDet->surface().toGlobal(lVDirection);
+         GlobalPoint gVDirection = geomDet->surface().toGlobal(lVDirection);
          GlobalPoint gPModule = geomDet->surface().toGlobal(lPModule);          
-         
-         //             	 Hit information in PixelBarrel         	 //
-         if (SubDetId == PixelSubdetector::PixelBarrel) 
-         { 
-             nHits_PIXEL++;
-         }
-	 //                      Hit information in PixelEndcap                  //   
-         else if (SubDetId == PixelSubdetector::PixelEndcap) 
-         {  nHits_PIXEL++; nHits_ENDCAP++;
-         }
-         //                         Hit information in TIB                       //
-         else if (SubDetId == SiStripDetId::TIB)
-         { 
-            uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
-            Temp.push_back(uOrientation);
-            Res_TIB_xPrime.push_back(uOrientation * resX * 10000);
-         }
-         //                         Hit information in TID                       //
-         else if (SubDetId == SiStripDetId::TID)
-         { 
-            nHits_ENDCAP++;
-            if(tTopo->tidIsZMinusSide(detId))
-            {  nHits_TIDminus++; }
-            else
-            {  nHits_TIDplus++; }
-         }
-         //                        Hit information in TOB                       //
-         else if (SubDetId == SiStripDetId::TOB)
-         {
-         }
-         //                        Hit information in TEC             		//
-         else if (SubDetId == SiStripDetId::TEC)
-         { 
-            nHits_ENDCAP++;
-            if(tTopo->tecIsZMinusSide(detId))
-            {  nHits_TECminus++; }
-            else
-            {  nHits_TECplus++; }
-         }
-
-         //-------------------------------------- Filling Residuals -------------------------------------------//
+        
+ 
+         //-------------------------------------- Filling Hits and Residuals -------------------------------------------//
 
          if (SubDetId == PixelSubdetector::PixelBarrel || SubDetId == StripSubdetector::TIB || SubDetId == StripSubdetector::TOB) 
          {
             uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
-         //   vOrientation = gVDirection.z() - gPModule.z() >= 0 ? +1.F : -1.F;
+            vOrientation = gVDirection.z() - gPModule.z() >= 0 ? +1.F : -1.F;
             switch(SubDetId)
             {
                case PixelSubdetector::PixelBarrel:
                Res_BPIX_xPrime.push_back(uOrientation*resX*10000);
-              // Res_BPIX_xPrime.push_back(uOrientation*resX*10000);
+               Res_BPIX_yPrime.push_back(vOrientation*resY*10000);
+               nHits_PIXEL++; 
+               break;
 
-               break;
                case StripSubdetector::TIB:
-//               Res_TIB_xPrime.push_back(uOrientation*resX*10000);
+               Res_TIB_xPrime.push_back(uOrientation*resX*10000);
                Temp.push_back(uOrientation*resX*10000);
+               Res_TIB_yPrime.push_back(vOrientation*resY*10000);
                break;
+
                case StripSubdetector::TOB:
                Res_TOB_xPrime.push_back(uOrientation*resX*10000);
+               Res_TOB_yPrime.push_back(vOrientation*resY*10000);
                break;
             }
         }
         else if ( SubDetId == PixelSubdetector::PixelEndcap || SubDetId == StripSubdetector::TID || SubDetId == StripSubdetector::TEC)     
         {
            uOrientation = deltaPhi(gUDirection.barePhi(), gPModule.barePhi()) >= 0. ? +1.F : -1.F;
-        //   vOrientation = gVDirection.perp() - gPModule.perp() >= 0. ? +1.F : -1.F;
+           vOrientation = gVDirection.perp() - gPModule.perp() >= 0. ? +1.F : -1.F;
            switch(SubDetId)
            {
               case PixelSubdetector::PixelEndcap:
               Res_FPIX_xPrime.push_back(uOrientation*resX*10000);
+              Res_FPIX_yPrime.push_back(vOrientation*resY*10000);
+              nHits_PIXEL++; nHits_ENDCAP++;
+              if(tTopo->pxfSide(detId)==1) {  nHits_FPIXminus++; nHits_ENDCAPminus++;}
+              else {  nHits_FPIXplus++; nHits_ENDCAPplus++; }
               break;
+
               case StripSubdetector::TID:
               Res_TID_xPrime.push_back(uOrientation*resX*10000);
+              Res_TID_yPrime.push_back(vOrientation*resY*10000);
+              nHits_ENDCAP++;
+              if(tTopo->tidIsZMinusSide(detId)) {  nHits_TIDminus++; nHits_ENDCAPminus++; }
+              else {  nHits_TIDplus++; nHits_ENDCAPplus++; }
               break;
+
               case StripSubdetector::TEC:
               Res_TEC_xPrime.push_back(uOrientation*resX*10000);
+              Res_TEC_yPrime.push_back(vOrientation*resY*10000);
+              nHits_ENDCAP++;
+              if(tTopo->tecIsZMinusSide(detId)) {  nHits_TECminus++; nHits_ENDCAPminus++; }
+              else {  nHits_TECplus++; nHits_ENDCAPplus++; }
               break;
            }
         } 
 
      }  //Hits Loop
 
-
+     nh_2D.push_back(nHits_2D);
      nh_PIXEL.push_back(nHits_PIXEL);
      nh_FPIXplus.push_back(nHits_FPIXplus);
      nh_FPIXminus.push_back(nHits_FPIXminus);
@@ -563,6 +565,7 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("dzBS", &dzBS);
 
    treeEvent->Branch("nHitsValid", &nh_Valid);
+   treeEvent->Branch("nHits2D", &nh_2D);
    treeEvent->Branch("nHitsPIXEL", &nh_PIXEL);
    treeEvent->Branch("nHitsBPIX", &nh_BPIX);
    treeEvent->Branch("nHitsFPIX", &nh_FPIX);
@@ -588,6 +591,14 @@ DatasetValidationTool_Tree::beginJob()
    treeEvent->Branch("ResTIDxPrime", &Res_TID_xPrime);
    treeEvent->Branch("ResTOBxPrime", &Res_TOB_xPrime);
    treeEvent->Branch("ResTECxPrime", &Res_TEC_xPrime);
+   treeEvent->Branch("ResBPIXyPrime",&Res_BPIX_yPrime);
+   treeEvent->Branch("ResFPIXyPrime", &Res_FPIX_yPrime);
+//   treeEvent->Branch("ResFPIXplusyPrime", &Res_FPIXplus_yPrime);
+//   treeEvent->Branch("ResFPIXminusyPrime", &Res_FPIXminus_yPrime);
+   treeEvent->Branch("ResTIByPrime", &Res_TIB_yPrime);
+   treeEvent->Branch("ResTIDyPrime", &Res_TID_yPrime);
+   treeEvent->Branch("ResTOByPrime", &Res_TOB_yPrime);
+   treeEvent->Branch("ResTECyPrime", &Res_TEC_yPrime);
 
    treeEvent->Branch("ResonanceMass", &Resonance);
    treeEvent->Branch("ResonanceEta", &Resonance_Eta);
@@ -608,7 +619,9 @@ DatasetValidationTool_Tree::endJob()
 {
    std::cout<<"Events: "<<nEvents<<std::endl;
    std::cout<<"Tracks: "<<nTracks<<std::endl;
-//   std::cout<<"TracksInEvent: "<<nTracksInEvent<<std::endl;
+   std::cout<<"Invalid Hits: "<<InvalidHit<<std::endl;
+   std::cout<<"SubDet0 HIts: "<<nZeroSubDetId<<std::endl;
+   std::cout<<"nNotDetUnits: "<<nNotDetUnits<<std::endl;
  }
 
 // ------------ method called when starting to processes a run  ------------
@@ -646,7 +659,55 @@ DatasetValidationTool_Tree::endLuminosityBlock(edm::LuminosityBlock const&, edm:
     Tracks_In_Luminosity.push_back(nTracksInLuminosity);
     treeLuminosity->Fill();
 }
-       
+
+// ------------------------------ 2D Hit Function ---------------------------------------
+// WILL BREAK DOWN FOR PHASE 2 !!!!!!!!!!!!!!!!!!   
+const bool DatasetValidationTool_Tree::isHit2D(const TrackingRecHit &hit)
+{
+     bool countStereoHitAs2D_ = true;
+     // we count SiStrip stereo modules as 2D if selected via countStereoHitAs2D_
+     // (since they provide theta information)
+     if (!hit.isValid() || (hit.dimension() < 2 && !countStereoHitAs2D_ && !dynamic_cast<const SiStripRecHit1D *>(&hit)))
+     {  return false; // real RecHit1D - but SiStripRecHit1D depends on countStereoHitAs2D_  
+     }
+     else 
+     {
+        const DetId detId(hit.geographicalId());
+        if (detId.det() == DetId::Tracker)
+        {
+           if (detId.subdetId() == PixelSubdetector::PixelBarrel || detId.subdetId() == PixelSubdetector::PixelEndcap)
+           {  return true;  // pixel is always 2D
+           }
+           else
+           {  // should be SiStrip now
+              const SiStripDetId stripId(detId);
+              if(stripId.stereo())  return countStereoHitAs2D_;  // stereo modules
+              else if (dynamic_cast<const SiStripRecHit1D *>(&hit) || dynamic_cast<const SiStripRecHit2D *>(&hit)) return false;  // rphi modules hit
+              //the following two are not used any more since ages...
+              else if (dynamic_cast<const SiStripMatchedRecHit2D *>(&hit)) return true;  // matched is 2D       
+              else if (dynamic_cast<const ProjectedSiStripRecHit2D *>(&hit))
+              {
+                 const ProjectedSiStripRecHit2D *pH = static_cast<const ProjectedSiStripRecHit2D *>(&hit);
+                 return (countStereoHitAs2D_ && isHit2D(pH->originalHit()));  // depends on original...
+              }
+              else 
+              { // edm::LogError("UnkownType") << "@SUB=DMRChecker::isHit2D"
+                //                         << "Tracker hit not in pixel, neither SiStripRecHit[12]D nor "
+                //                         << "SiStripMatchedRecHit2D nor ProjectedSiStripRecHit2D.";
+                 return false;
+              }
+           } 
+        }
+        else 
+        {   // not tracker??
+            // edm::LogWarning("DetectorMismatch") << "@SUB=DMRChecker::isHit2D"
+            //                                  << "Hit not in tracker with 'official' dimension >=2.";
+            return true;  // dimension() >= 2 so accept that...
+        }
+    }// never reached...
+}
+
+
 // ------------ method fills 'descriptions' with the allowed parameters for the module  ------------
 void
 DatasetValidationTool_Tree::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
